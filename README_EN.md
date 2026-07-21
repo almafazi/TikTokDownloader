@@ -124,6 +124,16 @@ def demo():
 demo()
 ```
 
+## Gateway API mode (Docker / Headless)
+
+> Compatible with `tiktok-api-dl` style endpoints: `POST /tiktok`, `POST /douyin`, `GET /tiktok/download`. See [GATEWAY.md](./GATEWAY.md).
+
+```bash
+cp .env.gateway.example .env.gateway
+docker compose -f docker-compose.gateway.yml up -d --build
+# http://127.0.0.1:7790/health  |  http://127.0.0.1:7790/docs
+```
+
 # 📋 Project Instructions
 
 ## Quick Start

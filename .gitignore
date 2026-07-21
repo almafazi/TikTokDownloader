@@ -5,4 +5,7 @@ __pycache__/
 /.idea/
 /.run/
 /Volume/
+.env
+.env.gateway
+.env.prod
 !/.github/
