@@ -10,7 +10,7 @@ import os
 import re
 from typing import Any, Dict, Optional
 
-import httpx
+from curl_cffi.requests import AsyncSession
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -19,7 +19,6 @@ from gateway import extraction_cache
 from gateway import session as session_store
 from gateway.engine_adapter import EngineError, get_engine
 from gateway.normalize import (
-    CDN_UA,
     build_content_disposition,
     build_response,
     sanitize_filename_part,
@@ -136,24 +135,24 @@ async def _stream_direct(
         await session_store.restore_session(session)
         return _error_json("No media URL available in session", 400, "bad_request")
 
-    base_headers = dict(session.get("http_headers") or {})
-    headers = {
-        "User-Agent": CDN_UA,
-        **base_headers,
-    }
+    referer = session.get("referer") or session.get("url") or "https://www.tiktok.com/"
     range_header = request.headers.get("range")
+    extra_headers = {"Referer": referer}
     if range_header:
-        headers["Range"] = range_header
+        extra_headers["Range"] = range_header
 
-    client = httpx.AsyncClient(timeout=httpx.Timeout(300, connect=10), follow_redirects=True)
+    client = AsyncSession(impersonate="chrome", timeout=300)
     try:
-        req = client.build_request("GET", direct_url, headers=headers)
-        resp = await client.send(req, stream=True)
+        resp = await client.get(
+            direct_url,
+            headers=extra_headers,
+            stream=True,
+            allow_redirects=True,
+        )
 
         if resp.status_code >= 400:
-            body = await resp.aread()
             await resp.aclose()
-            await client.aclose()
+            await client.close()
             await session_store.restore_session(session)
             return _error_json(
                 f"Upstream CDN returned {resp.status_code}",
@@ -176,11 +175,11 @@ async def _stream_direct(
 
         async def content_generator():
             try:
-                async for chunk in resp.aiter_bytes():
+                async for chunk in resp.aiter_content(chunk_size=BUFFER_SIZE):
                     yield chunk
             finally:
                 await resp.aclose()
-                await client.aclose()
+                await client.close()
 
         return StreamingResponse(
             content_generator(),
@@ -190,7 +189,7 @@ async def _stream_direct(
         )
     except Exception as exc:
         try:
-            await client.aclose()
+            await client.close()
         except Exception:
             pass
         await session_store.restore_session(session)
